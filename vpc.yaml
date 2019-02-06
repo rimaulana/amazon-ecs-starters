@@ -1,0 +1,643 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Amazon ECS VPC with public and private subnets spreads in 3 different AZs
+
+Parameters:
+
+  VpcBlock:
+    Type: String
+    Default: 10.123.0.0/16
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Description: The CIDR range for the VPC. This should be a valid private (RFC 1918) CIDR range.
+
+  PublicSubnet01Block:
+    Type: String
+    Default: 10.123.61.0/24
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Description: CidrBlock for public subnet where external load balancer or bastion host will reside
+
+  PublicSubnet02Block:
+    Type: String
+    Default: 10.123.62.0/24
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Description: CidrBlock for public subnet where external load balancer or bastion host will reside
+
+  PublicSubnet03Block:
+    Type: String
+    Default: 10.123.63.0/24
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Description: CidrBlock for public subnet where external load balancer or bastion host will reside
+
+  PrivateSubnet01Block:
+    Type: String
+    Default: 10.123.64.0/18
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Description: CidrBlock for subnet 01 within the VPC
+
+  PrivateSubnet02Block:
+    Type: String
+    Default: 10.123.128.0/18
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Description: CidrBlock for subnet 02 within the VPC
+
+  PrivateSubnet03Block:
+    Type: String
+    Default: 10.123.192.0/18
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Description: CidrBlock for subnet 03 within the VPC
+  
+  ClusterName:
+    Type: String
+    Description: Name of ECS Cluster
+
+  KeyName:
+    Description: The EC2 Key Pair to allow SSH access to the instances
+    Type: AWS::EC2::KeyPair::KeyName
+
+  NodeInstanceType:
+    Description: EC2 instance type for the node instances
+    Type: String
+    Default: t2.medium
+    AllowedValues:
+    - t2.small
+    - t2.medium
+    - t2.large
+    - t2.xlarge
+    - t2.2xlarge
+    - m3.medium
+    - m3.large
+    - m3.xlarge
+    - m3.2xlarge
+    - m4.large
+    - m4.xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    - m4.10xlarge
+    - m5.large
+    - m5.xlarge
+    - m5.2xlarge
+    - m5.4xlarge
+    - m5.12xlarge
+    - m5.24xlarge
+    - c4.large
+    - c4.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+    - c5.large
+    - c5.xlarge
+    - c5.2xlarge
+    - c5.4xlarge
+    - c5.9xlarge
+    - c5.18xlarge
+    - i3.large
+    - i3.xlarge
+    - i3.2xlarge
+    - i3.4xlarge
+    - i3.8xlarge
+    - i3.16xlarge
+    - r3.xlarge
+    - r3.2xlarge
+    - r3.4xlarge
+    - r3.8xlarge
+    - r4.large
+    - r4.xlarge
+    - r4.2xlarge
+    - r4.4xlarge
+    - r4.8xlarge
+    - r4.16xlarge
+    - x1.16xlarge
+    - x1.32xlarge
+    - p2.xlarge
+    - p2.8xlarge
+    - p2.16xlarge
+    - p3.2xlarge
+    - p3.8xlarge
+    - p3.16xlarge
+    ConstraintDescription: Must be a valid EC2 instance type
+
+  NodeAutoScalingGroupMinSize:
+    Type: Number
+    Description: Minimum size of Node Group ASG.
+    Default: 1
+
+  NodeAutoScalingGroupMaxSize:
+    Type: Number
+    Description: Maximum size of Node Group ASG.
+    Default: 100 
+
+  NodeVolumeSize:
+    Type: Number
+    Description: Node volume size
+    Default: 20
+
+Mappings:
+  RegionMap:
+    us-east-2:
+      ami: ami-0f7f8edb4fe82cf70
+    us-east-1:
+      ami: ami-0bf2fb355727b7faf
+    us-west-2:
+      ami: ami-0d3bd9852d477ade8
+    us-west-1:
+      ami: ami-082091011e69ea8a8
+    eu-west-3:
+      ami: ami-067e52f6552e2dac1
+    eu-west-2:
+      ami: ami-0376206bb575c76dd
+    eu-west-1:
+      ami: ami-0728d926f3f65c089
+    eu-central-1:
+      ami: ami-08b3fd22c78a217d5
+    eu-north-1:
+      ami: ami-0f462e20379b1cc66
+    ap-northeast-2:
+      ami: ami-0c0acda930d2bb85a
+    ap-northeast-1:
+      ami: ami-0e5c7bfb31b5e577e
+    ap-southeast-1:
+      ami: ami-0a7936ea6d7d16c6d
+    ap-southeast-2:
+      ami: ami-04770d89e9dedfa8b
+    ca-central-1:
+      ami: ami-093533dfa5b9a14ff
+    ap-south-1:
+      ami: ami-074d7facdfdfd9ee2
+    sa-east-1:
+      ami: ami-09870f8efd9314b59
+    us-gov-west-1:
+      ami: ami-00224e61
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Cluster Information
+      Parameters:
+      - ClusterName
+    - Label:
+        default: 'ECS Cluster networking configuration'
+      Parameters:
+      - VpcBlock
+      - PublicSubnet01Block
+      - PublicSubnet02Block
+      - PublicSubnet03Block
+      - PrivateSubnet01Block
+      - PrivateSubnet02Block
+      - PrivateSubnet03Block
+    - Label:
+        default: 'Container Instance Configuration'
+      Parameters:
+        - NodeAutoScalingGroupMinSize
+        - NodeAutoScalingGroupMaxSize
+        - NodeInstanceType
+        - NodeVolumeSize
+        - KeyName
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:  !Ref VpcBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: !Sub '${AWS::StackName}-on-${AWS::Region}'
+      - Key: auto-delete
+        Value: "no"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: auto-delete
+        Value: "no"
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: 
+        Fn::GetAtt: 
+        - ElasticIP
+        - AllocationId
+      SubnetId:
+        Ref: PublicSubnet01
+      Tags:
+      - Key: Name
+        Value: 
+          Fn::Join:
+          - ""
+          - - !Sub '${AWS::StackName}-nat-on-'
+            - Fn::Select:
+              - 0
+              - Fn::GetAZs: !Ref AWS::Region
+      - Key: auto-delete
+        Value: "no"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub '${AWS::StackName}-public-route-table-on-${AWS::Region}'
+      - Key: Network
+        Value: public
+      - Key: auto-delete
+        Value: "no"
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: 
+          Fn::Join:
+          - ""
+          - - !Sub '${AWS::StackName}-private-route-table-on-'
+            - Fn::Select:
+              - 0
+              - Fn::GetAZs: !Ref AWS::Region
+      - Key: Network
+        Value: private
+      - Key: auto-delete
+        Value: "no"
+
+  PublicRoute:
+    DependsOn: VPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  NatRoute:
+    DependsOn: VPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PublicSubnet01:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Public Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+        - 0
+        - Fn::GetAZs:
+            Ref: AWS::Region
+      MapPublicIpOnLaunch: true
+      CidrBlock:
+        Ref: PublicSubnet01Block
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: 
+          Fn::Join:
+          - ""
+          - - !Sub '${AWS::StackName}-public-subnet-on-'
+            - Fn::Select:
+              - 0
+              - Fn::GetAZs: !Ref AWS::Region
+      - Key: auto-delete
+        Value: "no"
+
+  PublicSubnet02:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Public Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+        - 1
+        - Fn::GetAZs:
+            Ref: AWS::Region
+      MapPublicIpOnLaunch: true
+      CidrBlock:
+        Ref: PublicSubnet02Block
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: 
+          Fn::Join:
+          - ""
+          - - !Sub '${AWS::StackName}-public-subnet-on-'
+            - Fn::Select:
+              - 1
+              - Fn::GetAZs: !Ref AWS::Region
+      - Key: auto-delete
+        Value: "no"
+
+  PublicSubnet03:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Public Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+        - 2 
+        - Fn::GetAZs:
+            Ref: AWS::Region
+      MapPublicIpOnLaunch: true
+      CidrBlock:
+        Ref: PublicSubnet03Block
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: 
+          Fn::Join:
+          - ""
+          - - !Sub '${AWS::StackName}-public-subnet-on-'
+            - Fn::Select:
+              - 2
+              - Fn::GetAZs: !Ref AWS::Region
+      - Key: auto-delete
+        Value: "no"
+
+  PrivateSubnet01:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet 01
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+        - 0
+        - Fn::GetAZs:
+            Ref: AWS::Region
+      CidrBlock:
+        Ref: PrivateSubnet01Block
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: 
+          Fn::Join:
+          - ""
+          - - !Sub '${AWS::StackName}-private-subnet-on-'
+            - Fn::Select:
+              - 0
+              - Fn::GetAZs: !Ref AWS::Region
+      - Key: auto-delete
+        Value: "no"
+
+  PrivateSubnet02:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet 02
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+        - 1
+        - Fn::GetAZs:
+            Ref: AWS::Region
+      CidrBlock:
+        Ref: PrivateSubnet02Block
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: 
+          Fn::Join:
+          - ""
+          - - !Sub '${AWS::StackName}-private-subnet-on-'
+            - Fn::Select:
+              - 1
+              - Fn::GetAZs: !Ref AWS::Region
+      - Key: auto-delete
+        Value: "no"
+
+  PrivateSubnet03:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet 03
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+        - 2
+        - Fn::GetAZs:
+            Ref: AWS::Region
+      CidrBlock:
+        Ref: PrivateSubnet03Block
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value: 
+          Fn::Join:
+          - ""
+          - - !Sub '${AWS::StackName}-private-subnet-on-'
+            - Fn::Select:
+              - 2
+              - Fn::GetAZs: !Ref AWS::Region
+      - Key: auto-delete
+        Value: "no"
+
+  PublicSubnet01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet01
+      RouteTableId: !Ref PublicRouteTable
+    
+  PublicSubnet02RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet02
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet03RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet03
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet01
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet02RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet02
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet03RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet03
+      RouteTableId: !Ref PrivateRouteTable
+  
+  NodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - !Ref NodeInstanceRole
+
+  NodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+  
+  NodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "Security group for all nodes in the ECS cluster ${ClusterName}"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        Description: Allow ssh from all
+        FromPort: 22
+        ToPort: 22
+        IpProtocol: tcp
+      SecurityGroupEgress:
+      - CidrIp: 0.0.0.0/0
+        Description: Allow outbound connection to all
+        FromPort: 0
+        ToPort: 65535
+        IpProtocol: "-1"
+      Tags:
+      - Key: Name
+        Value: !Sub "${ClusterName}-worker-sg"
+      - Key: auto-delete
+        Value: "no"
+  
+  NodeGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      DesiredCapacity: !Ref NodeAutoScalingGroupMinSize
+      LaunchConfigurationName: !Ref NodeLaunchConfig
+      MinSize: !Ref NodeAutoScalingGroupMinSize
+      MaxSize: !Ref NodeAutoScalingGroupMaxSize
+      VPCZoneIdentifier:
+      - !Ref PrivateSubnet01
+      - !Ref PrivateSubnet02
+      - !Ref PrivateSubnet03
+      Tags:
+      - Key: Name
+        Value: !Sub "${ClusterName}-container-instance"
+        PropagateAtLaunch: true
+      - Key: auto-delete
+        Value: "no"
+        PropagateAtLaunch: true
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 5
+
+  NodeLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: false
+      IamInstanceProfile: !Ref NodeInstanceProfile
+      ImageId: 
+        Fn::FindInMap:
+        - RegionMap
+        - !Ref AWS::Region
+        - ami
+      InstanceType: !Ref NodeInstanceType
+      KeyName: !Ref KeyName
+      SecurityGroups:
+      - !Ref NodeSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref NodeVolumeSize
+            VolumeType: gp2
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config;
+            echo ECS_BACKEND_HOST= >> /etc/ecs/ecs.config;
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+
+Outputs:
+
+  ECSSubnetIds:
+    Description: >-
+      All subnets in the VPC
+    Value: 
+      Fn::Join:
+      - ","
+      - - !Ref PrivateSubnet01
+        - !Ref PrivateSubnet02
+        - !Ref PrivateSubnet03
+        - !Ref PublicSubnet01
+        - !Ref PublicSubnet02
+        - !Ref PublicSubnet03
+  
+  ECSPrivateSubnetIds:
+    Description: >-
+      Collection of private subnet ids for either instance node or tasks
+    Value:
+      Fn::Join:
+      - ','
+      - - !Ref PrivateSubnet01
+        - !Ref PrivateSubnet02
+        - !Ref PrivateSubnet03
+    Export:
+      Name: !Sub '${AWS::StackName}-private-subnet-ids'
+
+  ECSPublicSubnetIds:
+    Description: >-
+      Collection of public subnet ids for either instance node or tasks 
+    Value:
+      Fn::Join:
+      - ','
+      - - !Ref PublicSubnet01
+        - !Ref PublicSubnet02
+        - !Ref PublicSubnet03
+    Export:
+      Name: !Sub '${AWS::StackName}-public-subnet-ids'
+
+  VpcId:
+    Description: >-
+      Exported VPC id for ECS Cluster
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${AWS::StackName}-vpc-id'
+
+  ClusteName:
+    Description: >-
+      The name of ECS Cluster created
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ecs-cluster'
